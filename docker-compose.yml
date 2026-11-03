@@ -1,0 +1,21 @@
+
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    depends_on:
+      - redis
+    command: python app.py
+
+  celery_worker:
+    build: .
+    depends_on:
+      - redis
+    command: celery -A tasks worker --loglevel=info
