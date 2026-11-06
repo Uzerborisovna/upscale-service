@@ -1,30 +1,36 @@
-
 from flask import Flask, request, jsonify, Response
 from tasks import upscale_task
 from celery.result import AsyncResult
 from celery_app import celery_app
 import redis
+import os
 
 app = Flask(__name__)
 
-
 redis_client = redis.Redis(host='redis', port=6379, db=0)
 
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 @app.route('/upscale', methods=['POST'])
 def upscale():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
+    if 'image' not in request.files:
+        return jsonify({"error": "No image part. Use field 'image'"}), 400
 
-    file = request.files['file']
+    file = request.files['image']
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "Invalid file format. Allowed: png, jpg, jpeg"}), 400
 
     image_bytes = file.read()
     task = upscale_task.delay(image_bytes)
     return jsonify({"task_id": task.id}), 202
-
 
 
 @app.route('/tasks/<task_id>', methods=['GET'])
@@ -47,15 +53,13 @@ def get_task_status(task_id):
     return jsonify(response)
 
 
-
 @app.route('/processed/<path:file_key>', methods=['GET'])
 def get_processed_file(file_key):
     file_bytes = redis_client.get(file_key)
     if not file_bytes:
-        return jsonify({"error": "File not found"}), 404
+        return jsonify({"error": "File not found or expired"}), 404
 
     return Response(file_bytes, mimetype='image/png')
-
 
 
 if __name__ == '__main__':
